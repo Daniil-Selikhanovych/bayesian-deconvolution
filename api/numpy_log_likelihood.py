@@ -64,8 +64,16 @@ def p(y):
 def h(y):
     return int((y >= 0) and (y < 1/2)) - int((y >= 1/2) and (y < 1))
 
-def h_jk(y, j, k):
-    return (2**(j/2))*h((2**j)*y - k)
+def h_jk(j, k, y):
+    value = (2**j)*y - k
+    value1 = np.where((value >= 0) & (value < 0.5), 1., 0.) 
+    value2 = np.where((value >= 0.5) & (value < 1), 1., 0,) 
+    return (2**(j/2))*(value1 - value2)
+    
+def h_jk_phi(j, k, J, m):
+    value1 = np.where((k*(2**(J + 1)) <= m*(2**(j))) & ((m + 1)*(2**(j + 1)) <= (2*k + 1)*(2**(J + 1))), 1., 0.) 
+    value2 = np.where(((2*k + 1)*(2**(J + 1)) <= m*(2**(j + 1))) & ((m + 1)*(2**(j)) <= (k + 1)*(2**(J + 1))), 1., 0.) 
+    return 2**(j/2) * (value1 - value2)
 
 def p_jk(y, j, k):
     return (2**(j/2))*p((2**j)*y - k)
@@ -79,25 +87,26 @@ def jk_to_index(j, k):
     return 2**j + k - 1
 
 def convert_1d_eta_to_2d_eta(eta_arr):
-    eta_0 = eta_arr[-1]
+    eta_0_0 = eta_arr[-1]
     size = eta_arr.shape[0]
     J = int(np.log2(size)) - 1
-    eta_2d = np.array([np.array([float(0) for k in range(2**j)]) for j in range(J + 1)])
+    eta_2d = np.zeros((J + 1, 2**J))
     for i in range(size - 1):
-        j, k = index_to_jk(i)
+        j = int(np.log2(i + 1))
+        k = i + 1 - 2**j
         eta_2d[j][k] = eta_arr[i]
         
-    return eta_2d, eta_0
+    return eta_2d, eta_0_0
 
-def convert_2d_eta_to_1d_eta(eta_2d, eta_0):
+def convert_2d_eta_to_1d_eta(eta_2d, eta_0_0):
     J = eta_2d.shape[0] - 1
     eta_arr = np.zeros(2**(J + 1))
     for j in range(J + 1):
         for k in range(2**j):
-            i = jk_to_index(j, k)
+            i = 2**j + k - 1
             eta_arr[i] = eta_2d[j][k]
             
-    eta_arr[-1] = eta_0
+    eta_arr[-1] = eta_0_0
     return eta_arr
 
 def f(J, j, k, m):
@@ -108,7 +117,7 @@ def f(J, j, k, m):
     else:
         return 0
 
-def calculate_phi(a, b, eta_arr):
+def calculate_phi(a, b, J, eta_2d, eta_0_0):
     """
     Calculation of phi(eta) for Haar's basis with any J
 
@@ -120,49 +129,34 @@ def calculate_phi(a, b, eta_arr):
         eta_arr = [eta_{0, 0}, eta_{1, 0}, eta_{1, 1}, eta_{2, 0},
                     eta_{2, 1}, eta_{2. 2}, eta_{2, 3}, eta_{0}]
     """
-    eta_2d, eta_0 = convert_1d_eta_to_2d_eta(eta_arr)
-    size = eta_arr.shape[0]
-    J = int(np.log2(size)) - 1
     res_sum = 0 
     for m in range(2**(J + 1)):
-        cur_sum = eta_0
-        for j in range(J + 1):
-            for k in range(2**j):
-                #print(f"Numpy, m = {m}, j = {j}, k = {k}, cur = {eta_2d[j][k]*(2**(j/2))*f(J, j, k, m)}")
-                cur_sum += eta_2d[j][k]*(2**(j/2))*f(J, j, k, m)
+        cur_sum = eta_0_0
+        cur_fun = partial(h_jk_phi, m = m, J = J)                                                                                                           
+        f_arr = np.fromfunction(cur_fun, (J + 1, 2**J), dtype = float)
+        result_arr = f_arr * eta_2d
         #print(f"Numpy, phi, exp of part = {cur_sum}")
-        res_sum += np.exp(cur_sum)
+        cur_sum = np.exp(result_arr.sum() + cur_sum)
+        res_sum += cur_sum
     #print(f"Numpy, const = {np.log((b - a)/(2**(J + 1)))}")
     return np.log(res_sum) + np.log((b - a)/(2**(J + 1)))
     
-def calculate_g_without_phi(y, eta_arr, a, b):
-    eta_2d, eta_0 = convert_1d_eta_to_2d_eta(eta_arr)
-    point = (y - a)/(b - a)
+def calculate_g_without_phi(point, eta_2d, eta_0_0, J):
     #print(point)
-    res_sum = eta_0*p(point)
-    size = eta_arr.shape[0]
-    J = int(np.log2(size)) - 1
-    for j in range(J + 1):
-        for k in range(2**j):
-            res_sum += eta_2d[j][k]*h_jk(point, j, k)
+    res_sum = eta_0_0*p(point)
+    cur_fun = partial(h_jk, y = point)             
+    f_arr = np.fromfunction(cur_fun, (J + 1, 2**J), dtype = float)
+    result_arr = f_arr * eta_2d
     
-    return res_sum
+    return res_sum + result_arr.sum()
 
-def L(eta_arr, data):
-    a, b = calculate_a_b(data)
-    first_part = np.sum(np.array([calculate_g_without_phi(y, eta_arr, a, b) for y in data])) 
-    second_part = data.shape[0]*calculate_phi(a, b, eta_arr)
+def L(eta_2d, eta_0_0, J, data_norm, a, b):
+    first_part = np.sum(np.array([calculate_g_without_phi(point, eta_2d, eta_0_0, J) for point in data_norm])) 
+    second_part = data_norm.shape[0]*calculate_phi(a, b, J, eta_2d, eta_0_0)
     return first_part - second_part
 
-def dens_estimation(y, eta_arr, phi, a, b):
-    eta_2d, eta_0 = convert_1d_eta_to_2d_eta(eta_arr)
-    point = (y - a)/(b - a)
-    res_sum = eta_0*p(point)
-    size = eta_arr.shape[0]
-    J = int(np.log2(size)) - 1
-    for j in range(J + 1):
-        for k in range(2**j):
-            res_sum += eta_2d[j][k]*h_jk(point, j, k)
+def dens_estimation(point, J, eta_2d, eta_0_0, phi):
+    res_sum = calculate_g_without_phi(point, eta_2d, eta_0_0, J)
     res_sum -= phi
     
     return np.exp(res_sum)
@@ -178,17 +172,15 @@ def sigma_arr_with_noise_sqr(sigma_arr, sigma_noise):
     return sigma_arr_noise_sqr
 
 def calculate_gauss_int(c, d, mu, sigma):
-    return norm.cdf(d, loc=mu, scale=sigma) - norm.cdf(c, loc=mu, scale=sigma)
+    return norm.cdf(d, loc = mu, scale = sigma) - norm.cdf(c, loc = mu, scale = sigma)
 
-def calculate_int_of_conv(c, d, theta_arr, sigma_noise):
-    p_arr, mu_arr, sigma_arr = GMM_params_from_theta(theta_arr)
+def calculate_int_of_conv(c, d, p_arr, mu_arr, sigma_arr, sigma_noise):
     sigma_arr_noise = sigma_arr_with_noise(sigma_arr, sigma_noise)
     first_part = p_arr[0]*calculate_gauss_int(c, d, mu_arr[0], sigma_arr_noise[0])
     second_part = p_arr[1]*calculate_gauss_int(c, d, mu_arr[1], sigma_arr_noise[1])
     return first_part + second_part
 
-def calculate_int_of_sqr_conv(c, d, theta_arr, sigma_noise):
-    p_arr, mu_arr, sigma_arr = GMM_params_from_theta(theta_arr)
+def calculate_int_of_sqr_conv(c, d, p_arr, mu_arr, sigma_arr, sigma_noise):
     sigma_arr_noise = sigma_arr_with_noise(sigma_arr, sigma_noise)
     sigma_arr_noise_sqr = sigma_arr_with_noise_sqr(sigma_arr, sigma_noise)
     sigma_sum_noise_sqr = np.sum(sigma_arr_noise_sqr)
@@ -205,26 +197,24 @@ def calculate_int_of_sqr_conv(c, d, theta_arr, sigma_noise):
                                                             d, mu_arr[1], sigma_arr_noise[1]/(np.sqrt(2)))
     return first_part + second_part + third_part
 
-def calculate_NCS(eta_arr, theta_arr, a, b, sigma_noise):
-    phi = calculate_phi(a, b, eta_arr)
+def calculate_NCS(J, eta_2d, eta_0_0, p_arr, mu_arr, sigma_arr, a, b, sigma_noise):
+    phi = calculate_phi(a, b, J, eta_2d, eta_0_0)
     #print(f"Numpy, phi = {phi}")
-    second_part = 2*calculate_int_of_conv(a, b, theta_arr, sigma_noise)
+    second_part = 2*calculate_int_of_conv(a, b, p_arr, mu_arr, sigma_arr, sigma_noise)
     first_part = 0
-    eta_2d, eta_0 = convert_1d_eta_to_2d_eta(eta_arr)
-    #print(f"Numpy, eta_2d = {eta_2d}, eta_0 = {eta_0}")
+    #print(f"Numpy, eta_2d = {eta_2d}, eta_0 = {eta_0_0}")
     #print(f"Numpy, theta = {theta_arr}")
-    size = eta_arr.shape[0]
-    J = int(np.log2(size)) - 1
     for m in range(2**(J + 1)):
-        denominator = eta_0 - phi
-        for j in range(J + 1):
-            for k in range(2**j):
-                denominator += eta_2d[j][k]*(2**(j/2))*f(J, j, k, m)
+        denominator = eta_0_0 - phi
+        cur_fun = partial(h_jk_phi, m = m, J = J)                                                                                               
+        f_arr = np.fromfunction(cur_fun, (J + 1, 2**J), dtype = float)
+        result_arr = f_arr * eta_2d
+        denominator += result_arr.sum()
         #print(f"Numpy, exp of denominator = {denominator}")
         denominator = np.exp(denominator)
         point_int_from = a + m*(b - a)/(2**(J + 1))
         point_int_to = a + (m + 1)*(b - a)/(2**(J + 1))
-        second_prod_term = calculate_int_of_sqr_conv(point_int_from, point_int_to, theta_arr, sigma_noise)
+        second_prod_term = calculate_int_of_sqr_conv(point_int_from, point_int_to, p_arr, mu_arr, sigma_arr, sigma_noise)
         #print(f"Numpy, denominator = {denominator}, second_prod_term = {second_prod_term}")
         first_part += (second_prod_term/denominator)
     #print(f"Numpy distance, first_part = {first_part}, second_part = {second_part}")
@@ -232,32 +222,37 @@ def calculate_NCS(eta_arr, theta_arr, a, b, sigma_noise):
     
 def calculate_prior(prior_arr, prior_0, prior_cov_inv):
     diff = prior_arr - prior_0
+    #print(f"diff = {diff}")
     return -0.5*np.dot(diff, np.dot(prior_cov_inv, diff))
     
-def calculate_log_likelihood(params, data, J, lambda_coef, dist_type,
+def calculate_log_likelihood(params, data_norm, a, b, J, lambda_coef, dist_type,
                              sigma_noise, eta_0, eta_cov_inv, 
                              theta_0, theta_cov_inv):
     params = params['points']
     eta_arr = params[:2**(J + 1)]
     theta_arr = params[2**(J + 1):]
-    a, b = calculate_a_b(data)
-    L_data = L(eta_arr, data)
+    eta_2d, eta_0_0 = convert_1d_eta_to_2d_eta(eta_arr)
+    p_arr, mu_arr, sigma_arr = GMM_params_from_theta(theta_arr)
+    L_data = L(eta_2d, eta_0_0, J, data_norm, a, b)
     #print(f"L_data = {L_data}")
     if (dist_type == dist_neiman_chi_sq):
-        measure_dist = calculate_NCS(eta_arr, theta_arr, a, b, sigma_noise)
+        measure_dist = calculate_NCS(J, eta_2d, eta_0_0, p_arr, mu_arr, sigma_arr, a, b, sigma_noise)
     #print(f"measure_dist = {measure_dist}")
     eta_prior_term = calculate_prior(eta_arr, eta_0, eta_cov_inv)
     theta_prior_term = calculate_prior(theta_arr, theta_0, theta_cov_inv)
+    #print(f"eta_arr = {eta_arr}")
     #print(f"eta_prior_term = {eta_prior_term}")
     #print(f"theta_prior_term = {theta_prior_term}")
     return L_data + lambda_coef*measure_dist + eta_prior_term + theta_prior_term
     
-def posterior_log_likelihood(calculate_log_likelihood, data, J, 
+def posterior_log_likelihood(calculate_log_likelihood, data_norm,
+                             a, b, J, 
 			     lambda_coef, dist_type,
                              sigma_noise, eta_0, eta_cov_inv, 
                              theta_0, theta_cov_inv):
     return partial(calculate_log_likelihood, 
-                   data = data, J = J, lambda_coef = lambda_coef,
+                   data_norm = data_norm, a = a, b = b, 
+                   J = J, lambda_coef = lambda_coef,
                    dist_type = dist_type, sigma_noise = sigma_noise,
                    eta_0 = eta_0, eta_cov_inv = eta_cov_inv, 
                    theta_0 = theta_0, theta_cov_inv = theta_cov_inv)

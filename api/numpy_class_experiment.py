@@ -2,8 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from numpy import random, linalg, histogram
 from scipy.stats import norm
+
 from .numpy_log_likelihood import (theta_from_GMM_params, sigma_arr_with_noise,
-					calculate_a_b, calculate_phi, dens_estimation)
+                                   convert_1d_eta_to_2d_eta, calculate_a_b, 
+                                   calculate_phi, dens_estimation)
+                                   
 from .constants import (data_num_default, random_state_data_default,
 			random_state_eta_default, random_state_theta_default,
 			p_arr_default, mu_arr_default,
@@ -29,7 +32,7 @@ class Deconv1dExperiment():
     def __init__(self, p_arr = p_arr_default, mu_arr = mu_arr_default,
                  sigma_arr = sigma_arr_default, sigma_noise = sigma_noise_default,
                  eta_0 = eta_0_default, eta_cov = eta_cov_default, theta_0 = theta_0_default,
-                 theta_cov = theta_cov_default, dist_type=dist_type_default):
+                 theta_cov = theta_cov_default, dist_type = dist_type_default):
 
         if (dist_type not in dist_type_arr):
             raise ValueError("Only three options are now available: " +
@@ -113,9 +116,14 @@ class Deconv1dExperiment():
     def plot_real_distribution_with_dens_estimation(self, data, component_choose, eta_arr):
         fig = self.plot_real_distribution_with_data(data, component_choose)
         a, b = calculate_a_b(data)
-        phi = calculate_phi(a, b, eta_arr)
-        y_arr = np.linspace(a, b, num=1000, endpoint=False)
-        density_est_arr = np.array([dens_estimation(y, eta_arr, phi, a, b) for y in y_arr])
+        data = (data - a)/(b - a)
+        eta_2d, eta_0 = convert_1d_eta_to_2d_eta(eta_arr)
+        size = eta_arr.shape[0]
+        J = int(np.log2(size)) - 1
+        phi = calculate_phi(a, b, J, eta_2d, eta_0)
+        y_arr = np.linspace(a, b, num = 1000, endpoint=False)
+        y_arr_norm = (y_arr - a)/(b - a)
+        density_est_arr = np.array([dens_estimation(point, J, eta_2d, eta_0, phi) for point in y_arr_norm])
         plt.plot(y_arr, density_est_arr, label = r'Density estimation', c = 'black')
         plt.legend()
         return fig
