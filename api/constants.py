@@ -39,7 +39,7 @@ dist_type_arr = [dist_neiman_chi_sq, dist_hellinger, dist_kl_divergence]
 
 colors_default = {0: 'green', 1: 'purple'}
 
-torch_pi = torch.acos(torch.zeros(1)) * 2 
+torch_pi = torch.acos(torch.zeros(1, dtype=torch.float64)) * 2 
 torch_sqrt_2 = torch.sqrt(torch.tensor(2, dtype=torch.float64))
 
 device_default = torch.device("cuda" if torch.cuda.is_available() else "cpu")

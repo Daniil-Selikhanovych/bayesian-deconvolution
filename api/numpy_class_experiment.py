@@ -123,7 +123,7 @@ class Deconv1dExperiment():
         phi = calculate_phi(a, b, J, eta_2d, eta_0)
         y_arr = np.linspace(a, b, num = 1000, endpoint=False)
         y_arr_norm = (y_arr - a)/(b - a)
-        density_est_arr = np.array([dens_estimation(point, J, eta_2d, eta_0, phi) for point in y_arr_norm])
+        density_est_arr = dens_estimation(y_arr_norm, J, eta_2d, eta_0, phi)
         plt.plot(y_arr, density_est_arr, label = r'Density estimation', c = 'black')
         plt.legend()
         return fig
